@@ -1,0 +1,114 @@
+from __future__ import print_function
+from time import sleep
+
+from smartcard.CardMonitoring import CardMonitor, CardObserver
+from smartcard.util import toHexString
+from smartcard.scard import *
+import struct
+import smartcard.util
+import json
+import clipboard
+
+import tkinter as tk
+
+large_font=('Verdana',20)
+
+def copy_to_clipboard():
+    clipboard.copy(e1.get())
+    e1.select_range(0,'end')
+
+# a simple card observer that prints inserted/removed cards
+class PrintObserver(CardObserver):
+    """A simple card observer that is notified
+    when cards are inserted/removed from the system and
+    prints the list of cards
+    """
+
+    def __init__(self):
+        self.current_uid = 0
+
+    def update(self, observable, actions):
+        (addedcards, removedcards) = actions
+        for card in addedcards:
+            print("+Inserted: ", toHexString(card.atr))
+            uid = self.readCardUid()
+            self.current_uid = uid
+            print(self.current_uid)
+            
+        for card in removedcards:
+            e1.select_clear()
+            print("-Removed: ", toHexString(card.atr))
+            e1.delete(0, tk.END)
+            self.current_uid = 0
+
+            label.config(text="Вставьте карту")
+
+    def readCardUid(self):
+        hresult, hcontext = SCardEstablishContext(SCARD_SCOPE_USER)
+
+        if hresult == SCARD_S_SUCCESS:
+
+            hresult, readers = SCardListReaders(hcontext, [])
+
+            if len(readers) > 0:
+                label.config(text="Нажмите кнопку Копировать")
+                
+                reader = readers[1]
+
+                hresult, hcard, dwActiveProtocol = SCardConnect(
+                    hcontext,
+                    reader,
+                    SCARD_SHARE_SHARED,
+                    SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1)
+
+                if hresult == 0:
+                    hresult, response = SCardTransmit(hcard, dwActiveProtocol, [0xFF, 0xCA, 0x00, 0x00, 0x00])
+
+                    data = smartcard.util.toHexString(response)
+                    data = data[:11].replace(" ", "")
+                   
+                    e1.insert(tk.END, str(int(data, 16)))
+                    
+                    tuple = struct.unpack('<i', data.decode('hex'))
+                   
+                    return tuple[0]
+                else:
+                    #print("NO_CARD NEW")
+                    label.config(text="Вставьте карту")
+            else:
+                print("NO_READER")
+        else:
+            print("FAILED")
+
+
+if __name__ == '__main__':
+    print("Insert or remove a smartcard in the system.")
+   
+    root = tk.Tk()
+    root.title('Card Reader')
+
+    ev=tk.StringVar()
+    
+    label=tk.Label(root,text="Вставьте карту")
+    label.config(font=("Verdana",20))
+    label.pack()
+
+    e1 = tk.Entry(root, textvariable=ev, font=large_font)
+    e1.focus_set()
+    e1.pack(side="left", expand=True, ipadx=10, ipady=3)
+   
+    b1=tk.Button(root,height=1, width=10, command=copy_to_clipboard,text="Копировать")
+    b1.pack(side="left",expand=True, ipady=10)
+   
+    root.geometry("500x100")
+
+    cardmonitor = CardMonitor()
+    cardobserver = PrintObserver()
+    cardmonitor.addObserver(cardobserver)
+
+    root.resizable(0,0)
+    root.mainloop()
+
+    cardmonitor.deleteObserver(cardobserver)
+
+  
